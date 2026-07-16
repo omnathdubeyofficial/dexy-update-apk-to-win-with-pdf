@@ -226,6 +226,13 @@ class _ReceiverState extends State<ReceiverScreen>
   String? _pendingVideoAsset;
   bool _pendingPlayRequest = false;
 
+  // Network monitoring
+  Timer? _networkCheckTimer;
+  bool _hasNetwork = true;
+  bool _isSenderConnected = false;
+  String? _lastError;
+  bool _showError = false;
+
   // Animation for home background zoom
   late AnimationController _bgZoomCtrl;
   late Animation<double> _bgZoom;
@@ -274,6 +281,49 @@ class _ReceiverState extends State<ReceiverScreen>
     _startWsServer();
     _getIP();
     _preExtractAllVideos();
+    _startNetworkMonitor();
+  }
+
+  // ── Network monitoring ────────────────────────────────────────────────────
+  void _startNetworkMonitor() {
+    _networkCheckTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      final hasNet = await _checkNetwork();
+      if (hasNet != _hasNetwork && mounted) {
+        setState(() => _hasNetwork = hasNet);
+      }
+    });
+  }
+
+  Future<bool> _checkNetwork() async {
+    try {
+      final ifaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      for (final iface in ifaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback && !addr.address.startsWith('169.254')) {
+            return true;
+          }
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  void _showErrorPopup(String message) {
+    if (!mounted) return;
+    _lastError = message;
+    _showError = true;
+    setState(() {});
+    Future.delayed(const Duration(seconds: 8), () {
+      if (mounted) {
+        setState(() {
+          _showError = false;
+          _lastError = null;
+        });
+      }
+    });
   }
 
   /// Resolve video paths at startup (desktop plays bundled files directly — no 3GB copy).
@@ -552,6 +602,7 @@ class _ReceiverState extends State<ReceiverScreen>
       debugPrint('HTTP server on :$kServerPort');
     } catch (e) {
       debugPrint('HTTP server error: $e');
+      if (mounted) _showErrorPopup('Server start failed: port $kServerPort in use');
     }
   }
 
@@ -574,6 +625,8 @@ class _ReceiverState extends State<ReceiverScreen>
         if (WebSocketTransformer.isUpgradeRequest(req)) {
           WebSocketTransformer.upgrade(req).then((ws) {
             _wsSockets.add(ws);
+            _isSenderConnected = true;
+            if (mounted) setState(() {});
             debugPrint('Sender connected via WS');
             ws.add(jsonEncode(
                 {'type': 'handshake_ack', 'screen': _screen}));
@@ -581,10 +634,26 @@ class _ReceiverState extends State<ReceiverScreen>
               _handleWsMsg,
               onDone: () {
                 _wsSockets.remove(ws);
+                final wasConnected = _isSenderConnected;
+                if (_wsSockets.isEmpty) {
+                  _isSenderConnected = false;
+                }
+                if (mounted) setState(() {});
+                if (wasConnected && _screen != 'home') {
+                  _showErrorPopup('Remote disconnected - waiting for reconnection');
+                }
                 debugPrint('Sender WS disconnected');
               },
               onError: (e) {
                 _wsSockets.remove(ws);
+                final wasConnected = _isSenderConnected;
+                if (_wsSockets.isEmpty) {
+                  _isSenderConnected = false;
+                }
+                if (mounted) setState(() {});
+                if (wasConnected && _screen != 'home') {
+                  _showErrorPopup('Connection error - waiting for reconnection');
+                }
                 debugPrint('WS error: $e');
               },
             );
@@ -593,6 +662,7 @@ class _ReceiverState extends State<ReceiverScreen>
       });
     } catch (e) {
       debugPrint('WS server error: $e');
+      if (mounted) _showErrorPopup('WebSocket server failed to start on port $kWsPort');
     }
   }
 
@@ -859,11 +929,8 @@ class _ReceiverState extends State<ReceiverScreen>
       debugPrint('[Receiver] Play error: $e – retrying with fresh player');
       _videoReady = false;
       _videoSurfaceReady = false;
-      _videoCtrl = null;
 
-      try {
-        await _player.dispose();
-      } catch (_) {}
+      try { await _player.dispose(); } catch (_) {}
       try {
         _player = Player(configuration: const PlayerConfiguration(
           bufferSize: 512 * 1024 * 1024,
@@ -895,6 +962,9 @@ class _ReceiverState extends State<ReceiverScreen>
       } catch (e2) {
         debugPrint('[Receiver] Retry also failed: $e2');
         _videoError = 'Video playback failed. Tap to retry.';
+        if (mounted) {
+          _showErrorPopup('Video Error: ${e2.toString().isNotEmpty ? e2.toString().substring(0, e2.toString().length.clamp(0, 120)) : "Playback failed"}');
+        }
       }
     }
 
@@ -924,6 +994,7 @@ class _ReceiverState extends State<ReceiverScreen>
 
   @override
   void dispose() {
+    _networkCheckTimer?.cancel();
     _stopStatusTimer();
     try { _httpServer?.close(); } catch (_) {}
     try { _wsServer?.close(); } catch (_) {}
@@ -1011,6 +1082,207 @@ class _ReceiverState extends State<ReceiverScreen>
               ),
             ),
           ),
+          // Sender connection status indicator
+          if (_isSenderConnected)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4ADE80).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: const Color(0xFF4ADE80).withOpacity(0.4), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6, height: 6,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFF4ADE80),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'REMOTE CONNECTED',
+                      style: TextStyle(
+                        color: Color(0xFF4ADE80),
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          // No network overlay
+          if (!_hasNetwork)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.85),
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(40),
+                    padding: const EdgeInsets.all(40),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1200),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                          color: const Color(0xFFFECD2A).withOpacity(0.3),
+                          width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFECD2A).withOpacity(0.1),
+                          blurRadius: 40,
+                          spreadRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.wifi_off_rounded,
+                            size: 64, color: Color(0xFFFECD2A)),
+                        const SizedBox(height: 24),
+                        Text(
+                          'NO NETWORK DETECTED',
+                          style: GoogleFonts.outfit(
+                            color: const Color(0xFFFECD2A),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 3,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Please connect to a LAN or WiFi network',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'The receiver requires a network connection\nto communicate with the remote.',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Sender disconnected overlay (only show if we have network but sender is gone)
+          if (_hasNetwork && !_isSenderConnected && _screen != 'home')
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.8),
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(40),
+                    padding: const EdgeInsets.all(40),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A0A00),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                          color: Colors.orangeAccent.withOpacity(0.3),
+                          width: 2),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.phone_android_rounded,
+                            size: 64, color: Colors.orangeAccent),
+                        const SizedBox(height: 24),
+                        Text(
+                          'REMOTE DISCONNECTED',
+                          style: GoogleFonts.outfit(
+                            color: Colors.orangeAccent,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 3,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'The Android remote has lost connection.',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Waiting for reconnection...',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Error popup overlay
+          if (_showError && _lastError != null)
+            Positioned(
+              top: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: _showError ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2A0A0A),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                          color: Colors.redAccent.withOpacity(0.5), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.redAccent.withOpacity(0.2),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline_rounded,
+                            size: 20, color: Colors.redAccent),
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            _lastError!,
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 12,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

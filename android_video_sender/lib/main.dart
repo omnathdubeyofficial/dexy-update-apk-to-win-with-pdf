@@ -158,19 +158,28 @@ class DexyLink {
   bool isConnected   = false;
   bool isWsConnected = false;
   bool isScanning    = false;
+  int _failedAttempts = 0;
   WebSocketChannel? _ws;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
   final List<void Function(bool)> _listeners = [];
+  final List<void Function(String)> _errorListeners = [];
 
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
 
   void addListener(void Function(bool) cb)    => _listeners.add(cb);
   void removeListener(void Function(bool) cb) => _listeners.remove(cb);
+  void addErrorListener(void Function(String) cb) => _errorListeners.add(cb);
+  void removeErrorListener(void Function(String) cb) => _errorListeners.remove(cb);
+
   void _notify(bool c) {
     isConnected = c;
     for (final cb in List.from(_listeners)) cb(c);
+  }
+
+  void _notifyError(String msg) {
+    for (final cb in List.from(_errorListeners)) cb(msg);
   }
 
   Future<void> init() async {
@@ -191,9 +200,18 @@ class DexyLink {
     if (isConnected || isScanning) return;
     if (savedIP != null && savedIP!.isNotEmpty) {
       final ok = await handshake(savedIP!);
-      if (ok) return;
+      if (ok) {
+        _failedAttempts = 0;
+        return;
+      }
     }
     await _scan();
+    if (!isConnected) {
+      _failedAttempts++;
+      if (_failedAttempts >= 3) {
+        _notifyError('Cannot find receiver. Make sure the Windows app is running on the same network.');
+      }
+    }
   }
 
   Future<bool> handshake(String ip, {bool save = true}) async {
@@ -286,13 +304,24 @@ class DexyLink {
             _messageController.add(json);
           } catch (_) {}
         },
-        onDone:  () { isWsConnected = false; _notify(false); },
-        onError: (_) { isWsConnected = false; _notify(false); },
+        onDone:  () {
+          isWsConnected = false;
+          _notify(false);
+          _notifyError('Connection lost to receiver. Reconnecting...');
+        },
+        onError: (_) {
+          isWsConnected = false;
+          _notify(false);
+          _notifyError('Connection error. Reconnecting...');
+        },
       );
       isWsConnected = true;
       _pingTimer?.cancel();
       _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) => send({'type': 'ping'}));
-    } catch (_) { isWsConnected = false; }
+    } catch (_) {
+      isWsConnected = false;
+      _notifyError('Failed to establish connection to receiver');
+    }
   }
 
   void send(Map<String, dynamic> data) {
@@ -590,6 +619,10 @@ class _HomeState extends State<HomeScreen> with TickerProviderStateMixin {
   final List<AnimationController> _btnCtrls = [];
   final List<Animation<double>> _btnFades  = [];
 
+  String? _lastError;
+  bool _showError = false;
+  Timer? _errorTimer;
+
   // Button data: icon, label, enabled flag
   static const _btnData = [
     (Icons.photo_library_rounded,    'GALLERY',     true),
@@ -622,10 +655,29 @@ class _HomeState extends State<HomeScreen> with TickerProviderStateMixin {
       Future.delayed(Duration(milliseconds: 250 + i * 110),
           () { if (mounted) c.forward(); });
     }
+
+    DexyLink.instance.addErrorListener(_onError);
+  }
+
+  void _onError(String msg) {
+    if (!mounted) return;
+    setState(() {
+      _lastError = msg;
+      _showError = true;
+    });
+    _errorTimer?.cancel();
+    _errorTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) setState(() {
+        _showError = false;
+        _lastError = null;
+      });
+    });
   }
 
   @override
   void dispose() {
+    DexyLink.instance.removeErrorListener(_onError);
+    _errorTimer?.cancel();
     _gridCtrl.dispose();
     _bgZoomCtrl.dispose();
     for (final c in _btnCtrls) c.dispose();
@@ -775,6 +827,51 @@ class _HomeState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
           ),
         )),
+        // Error notification overlay
+        if (_showError && _lastError != null)
+          Positioned(
+            top: 60,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: Colors.redAccent.withOpacity(0.5), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.redAccent.withOpacity(0.2),
+                      blurRadius: 20,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.wifi_off_rounded,
+                        size: 18, color: Colors.redAccent.withOpacity(0.9)),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        _lastError!,
+                        style: GoogleFonts.montserrat(
+                          color: Colors.white.withOpacity(0.85),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
       ]),
     );
   }

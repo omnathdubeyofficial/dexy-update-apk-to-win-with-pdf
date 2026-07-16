@@ -1,21 +1,31 @@
-# Asset files - don't push to GitHub
-**/assets/background/*.png
-**/assets/background/*.jpg
-**/assets/background/*.JPG
-**/assets/background/*.jpeg
+# Heavy video files
 **/assets/video/*.mp4
 **/assets/video/*.MP4
-**/assets/img/
-**/assets/brochure/
-**/assets/plans/
-**/assets/logowithname.png
 
-# Installer files
+# Large DJI drone images
+**/assets/background/DJI_*
+**/assets/background/development_blueprint.png
+
+# Gallery images (55 images)
+**/assets/img/
+
+# Brochure PDF
+**/assets/brochure/
+
+# Plans images
+**/assets/plans/
+
+# Installer executables and configs
 **/installer/*.exe
 **/installer/*.iss
 **/installer/Output/
 
-# Build directories
+# Build artifacts
 **/android/app/build/
 **/build/
 **/.gradle/
+
+# IDE
+.idea/
+.vscode/
+*.iml
