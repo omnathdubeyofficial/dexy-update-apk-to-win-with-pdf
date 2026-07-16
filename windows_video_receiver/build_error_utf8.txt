@@ -1,0 +1,2 @@
+﻿Building Windows application...                                    70.0s
+ΓêÜ Built build\windows\x64\runner\Release\windows_video_receiver.exe

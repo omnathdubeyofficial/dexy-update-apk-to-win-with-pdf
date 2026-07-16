@@ -1,0 +1,54 @@
+name: windows_video_receiver
+description: Video receiver app for Windows
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.1.0
+
+  # MEDIA (ONLY ONE ENGINE)
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
+  media_kit_libs_windows_video: ^1.0.11
+  media_kit_libs_android_video: ^1.0.8
+
+  # SERVER & SYSTEM
+  shelf: ^1.4.1
+  network_info_plus: ^4.1.0
+  window_manager: ^0.4.3
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  crypto: ^3.0.3
+  dio: ^5.4.0
+  pdfx: ^2.9.2
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: false
+  ios: false
+  windows:
+    generate: true
+    image_path: "assets/icon/dex.jpeg"
+    icon_size: 256
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/default_background.jpg
+    - assets/logowithname.png
+    - assets/video/
+    - assets/background/
+    - assets/img/
+    - assets/plans/
+    - assets/brochure/
