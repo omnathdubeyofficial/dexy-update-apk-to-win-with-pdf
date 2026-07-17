@@ -1623,7 +1623,8 @@ class _VideoPage extends StatefulWidget {
   final String label;
   final bool showTopLabel;
   final bool showThumbnailBorder;
-  final bool backgroundCover;  // new flag: true = cover, false = contain
+  final bool backgroundCover;
+  final bool autoPlay;
 
   const _VideoPage({
     required this.videos,
@@ -1631,7 +1632,8 @@ class _VideoPage extends StatefulWidget {
     required this.label,
     this.showTopLabel = true,
     this.showThumbnailBorder = true,
-    this.backgroundCover = true,  // default to cover
+    this.backgroundCover = true,
+    this.autoPlay = true,
   });
 
   @override
@@ -1662,7 +1664,9 @@ class _VideoPageState extends State<_VideoPage> {
       _extractThenGenThumbs();
     }
 
-    _loadVideo(0);
+    if (widget.autoPlay) {
+      _loadVideo(0);
+    }
 
     _statusSub = DexyLink.instance.onMessage.listen((msg) {
       if (msg['type'] == 'video_status' && msg['screen'] == widget.screenName) {

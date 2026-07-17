@@ -261,7 +261,7 @@ class _ReceiverState extends State<ReceiverScreen>
 
     // Listen for video completion → go back to home
     _player.streams.completed.listen((_) {
-      if (mounted) {
+      if (mounted && !_videoLoading) {
         _stopStatusTimer();
         setState(() {
           _screen = 'home';
@@ -893,6 +893,7 @@ class _ReceiverState extends State<ReceiverScreen>
     }
 
     _videoLoading = true;
+    _videoReady = false;
     _videoSurfaceReady = false;
     _videoError = null;
     _stopStatusTimer();
