@@ -67,9 +67,9 @@ const int kGalleryImageCount = 55;
 final List<String> kGalleryImages =
     List.generate(kGalleryImageCount, (i) => 'assets/img/${i + 1}.jpg');
 
-const int kPlansImageCount = 5;
+const int kPlansImageCount = 13;
 final List<String> kPlansImages =
-    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpeg');
+    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpg');
 
 const List<String> kWalkthroughVideos = [
   'assets/video/walkvideo.mp4',
