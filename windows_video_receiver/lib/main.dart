@@ -34,13 +34,14 @@ const List<String> kWalkthroughVideos = [
   'assets/video/walkvideo.mp4',
 ];
 const List<String> kDronshootVideos = [
-    'assets/background/1.jpeg',
+  'assets/video/DJI_20260612135953_0426_D.MP4',
+  'assets/video/DJI_20260612140220_0428_D.MP4',
+];
+const List<String> kDevImages = [
+     'assets/background/1.jpeg',
     'assets/background/2.jpeg',
     'assets/background/3.jpeg',
     'assets/background/4.jpeg',
-];
-const List<String> kDevImages = [
-  'assets/background/DJI_20260612133119_0412_D.JPG',
 
 ];
 
