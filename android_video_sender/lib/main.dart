@@ -67,7 +67,7 @@ const int kGalleryImageCount = 55;
 final List<String> kGalleryImages =
     List.generate(kGalleryImageCount, (i) => 'assets/img/${i + 1}.jpg');
 
-const int kPlansImageCount = 13;
+const int kPlansImageCount = 11;
 final List<String> kPlansImages =
     List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpg');
 
@@ -81,8 +81,10 @@ const List<String> kDronshootVideos = [
 ];
 
 const List<String> kDevImages = [
-  'assets/background/DJI_20260612133119_0412_D.JPG',
-  // 'assets/background/DJI_20260612133119_0412_D.JPG',
+  'assets/background/1.jpeg',
+  'assets/background/2.jpeg',
+  'assets/background/3.jpeg',
+  'assets/background/4.jpeg',
 ];
 
 /// Persistent in-memory caches so screens don't reload on every back navigation.
