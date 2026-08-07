@@ -67,7 +67,7 @@ const int kGalleryImageCount = 55;
 final List<String> kGalleryImages =
     List.generate(kGalleryImageCount, (i) => 'assets/img/${i + 1}.jpg');
 
-const int kPlansImageCount = 11;
+const int kPlansImageCount = 5;
 final List<String> kPlansImages =
     List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpg');
 
@@ -814,7 +814,8 @@ class _HomeState extends State<HomeScreen> with TickerProviderStateMixin {
         ])),
 
         Positioned(top: 20, right: 24, child: ConnChip(onTap: _showManual)),
-        const Positioned(top: 20, left: 24, child: _RotateChip()),
+        // Landscape rotation button
+        // const Positioned(top: 20, left: 24, child: _RotateChip()),
 
         Positioned(bottom: 12, left: 0, right: 0, child: Center(
           child: Column(
@@ -829,51 +830,51 @@ class _HomeState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
           ),
         )),
-        // Error notification overlay
-        if (_showError && _lastError != null)
-          Positioned(
-            top: 60,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                      color: Colors.redAccent.withOpacity(0.5), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.redAccent.withOpacity(0.2),
-                      blurRadius: 20,
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.wifi_off_rounded,
-                        size: 18, color: Colors.redAccent.withOpacity(0.9)),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        _lastError!,
-                        style: GoogleFonts.montserrat(
-                          color: Colors.white.withOpacity(0.85),
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        // Error / internet connection notification popup
+        // if (_showError && _lastError != null)
+        //   Positioned(
+        //     top: 60,
+        //     left: 0,
+        //     right: 0,
+        //     child: Center(
+        //       child: Container(
+        //         margin: const EdgeInsets.symmetric(horizontal: 20),
+        //         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        //         decoration: BoxDecoration(
+        //           color: Colors.redAccent.withOpacity(0.15),
+        //           borderRadius: BorderRadius.circular(16),
+        //           border: Border.all(
+        //               color: Colors.redAccent.withOpacity(0.5), width: 1.5),
+        //           boxShadow: [
+        //             BoxShadow(
+        //               color: Colors.redAccent.withOpacity(0.2),
+        //               blurRadius: 20,
+        //             ),
+        //           ],
+        //         ),
+        //         child: Row(
+        //           mainAxisSize: MainAxisSize.min,
+        //           children: [
+        //             Icon(Icons.wifi_off_rounded,
+        //                 size: 18, color: Colors.redAccent.withOpacity(0.9)),
+        //             const SizedBox(width: 10),
+        //             Flexible(
+        //               child: Text(
+        //                 _lastError!,
+        //                 style: GoogleFonts.montserrat(
+        //                   color: Colors.white.withOpacity(0.85),
+        //                   fontSize: 10,
+        //                   fontWeight: FontWeight.w600,
+        //                 ),
+        //                 maxLines: 2,
+        //                 overflow: TextOverflow.ellipsis,
+        //               ),
+        //             ),
+        //           ],
+        //         ),
+        //       ),
+        //     ),
+        //   ),
       ]),
     );
   }
