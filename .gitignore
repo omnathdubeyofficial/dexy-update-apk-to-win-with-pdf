@@ -17,6 +17,7 @@
 
 # Installer executables and configs
 **/installer/*.exe
+**/installer/**/*.exe
 **/installer/*.iss
 **/installer/Output/
 

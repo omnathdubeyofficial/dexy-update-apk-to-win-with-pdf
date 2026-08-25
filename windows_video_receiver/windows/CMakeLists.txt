@@ -2,6 +2,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(windows_video_receiver LANGUAGES CXX)
 
+# Visual Studio 2026 ships CMake 4, which rejects cmake_minimum_required < 3.5.
+# pdfx's PDFium download helper still uses 2.8.12.
+set(ENV{CMAKE_POLICY_VERSION_MINIMUM} "3.5")
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "windows_video_receiver")
@@ -56,6 +60,22 @@ add_subdirectory("runner")
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
+
+# OneDrive + long folder names push plugin headers past Windows MAX_PATH (260)
+# when compiled through .plugin_symlinks. Point MSVC at the short pub-cache path.
+foreach(plugin ${FLUTTER_PLUGIN_LIST})
+  set(_plugin_win "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/${plugin}/windows")
+  if(EXISTS "${_plugin_win}" AND TARGET ${plugin}_plugin)
+    file(REAL_PATH "${_plugin_win}" _plugin_win_real)
+    target_include_directories(${plugin}_plugin PRIVATE
+      "${_plugin_win_real}"
+      "${_plugin_win_real}/include"
+    )
+    target_include_directories(${plugin}_plugin INTERFACE
+      "${_plugin_win_real}/include"
+    )
+  endif()
+endforeach()
 
 
 # === Installation ===

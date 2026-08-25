@@ -69,7 +69,7 @@ final List<String> kGalleryImages =
 
 const int kPlansImageCount = 5;
 final List<String> kPlansImages =
-    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpg');
+    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpeg');
 
 const List<String> kWalkthroughVideos = [
   'assets/video/walkvideo.mp4',
@@ -1383,12 +1383,14 @@ class _ImageBrowserPage extends StatefulWidget {
   final String scrollType;
   final String label;
   final List<String> images;
+  final BoxFit fit;
 
   const _ImageBrowserPage({
     required this.screen,
     required this.scrollType,
     required this.label,
     required this.images,
+    this.fit = BoxFit.cover,
   });
 
   @override
@@ -1492,7 +1494,7 @@ class _ImageBrowserPageState extends State<_ImageBrowserPage>
         },
         itemBuilder: (_, i) {
           final img = Image.asset(widget.images[i],
-              fit: BoxFit.cover,
+              fit: widget.fit,
               gaplessPlayback: true,
               width: double.infinity,
               height: double.infinity);
@@ -1616,6 +1618,7 @@ class PlansPage extends StatelessWidget {
     scrollType: 'plans_scroll',
     label: 'PLANS',
     images: kPlansImages,
+    fit: BoxFit.contain,
   );
 }
 

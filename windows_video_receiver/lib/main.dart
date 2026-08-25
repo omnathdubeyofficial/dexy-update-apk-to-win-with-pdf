@@ -28,7 +28,7 @@ final List<String> kGalleryImages =
 
 const int kPlansImageCount = 5;
 final List<String> kPlansImages =
-    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpg');
+    List.generate(kPlansImageCount, (i) => 'assets/plans/${i + 1}.jpeg');
 
 const List<String> kWalkthroughVideos = [
   'assets/video/walkvideo.mp4',
@@ -1033,6 +1033,7 @@ class _ReceiverState extends State<ReceiverScreen>
           kPlansImages,
           _plansIdx,
           _plansZoom,
+          fit: BoxFit.contain,
         );
         break;
 
@@ -1293,8 +1294,9 @@ class _ReceiverState extends State<ReceiverScreen>
   Widget _buildImageBody(
     List<String> images,
     int index,
-    TransformationController zoom,
-  ) {
+    TransformationController zoom, {
+    BoxFit fit = BoxFit.cover,
+  }) {
     final safeIdx = index.clamp(0, images.length - 1);
     return Container(
       color: Colors.black,
@@ -1306,7 +1308,7 @@ class _ReceiverState extends State<ReceiverScreen>
         child: SizedBox.expand(
           child: Image.asset(
             images[safeIdx],
-            fit: BoxFit.cover,
+            fit: fit,
             filterQuality: FilterQuality.high,
             errorBuilder: (_, __, ___) => const Center(
               child: Icon(Icons.broken_image, size: 80, color: Colors.white24),
