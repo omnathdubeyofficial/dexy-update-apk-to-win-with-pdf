@@ -81,16 +81,24 @@ const List<String> kDronshootVideos = [
 ];
 
 const List<String> kDevImages = [
-   'assets/background/6.jpeg',
-    'assets/background/7.jpeg',
-    'assets/background/8.jpeg',
-    'assets/background/9.jpeg',
-    'assets/background/10.jpeg',
-     'assets/background/1.jpeg',
-    'assets/background/2.jpeg',
-    'assets/background/3.jpeg',
-    'assets/background/4.jpeg',
-     'assets/background/5.jpeg',
+'assets/background/1.jpeg',
+'assets/background/2.jpeg',
+'assets/background/3.jpeg',
+'assets/background/4.jpeg',
+'assets/background/5.jpeg',
+'assets/background/6.jpeg',
+'assets/background/7.jpeg',
+'assets/background/8.jpeg',
+'assets/background/9.jpeg',
+'assets/background/10.jpeg',
+'assets/background/11.jpeg',
+'assets/background/12.jpeg',
+'assets/background/13.jpeg',
+'assets/background/14.jpeg',
+'assets/background/15.jpeg',
+'assets/background/16.jpeg',
+'assets/background/17.jpeg',
+'assets/background/18.jpeg',
 ];
 
 /// Persistent in-memory caches so screens don't reload on every back navigation.
