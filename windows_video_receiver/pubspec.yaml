@@ -11,11 +11,9 @@ dependencies:
     sdk: flutter
   google_fonts: ^6.1.0
 
-  # MEDIA (ONLY ONE ENGINE)
-  media_kit: ^1.1.10
-  media_kit_video: ^1.2.4
-  media_kit_libs_windows_video: ^1.0.11
-  media_kit_libs_android_video: ^1.0.8
+  # Same Windows player as Vieana Screen (Media Foundation). No mpv texture flicker.
+  video_player: ^2.11.1
+  video_player_win: ^3.2.2
 
   # SERVER & SYSTEM
   shelf: ^1.4.1

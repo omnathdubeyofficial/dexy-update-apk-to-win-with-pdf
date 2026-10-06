@@ -10,8 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:video_player/video_player.dart';
+import 'package:video_player_win/video_player_win_plugin.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:pdfx/pdfx.dart';
 
@@ -61,7 +61,9 @@ const List<String> kDevImages = [
 // ─────────────────────────── MAIN ───────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
+  if (Platform.isWindows) {
+    WindowsVideoPlayer.registerWith();
+  }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
@@ -221,13 +223,13 @@ class _ReceiverState extends State<ReceiverScreen>
   final Map<int, Uint8List> _brochurePageCache = {};
   final Map<int, bool> _loadingBrochurePages = {};
 
-  // MediaKit player
-  late Player _player;
-  VideoController? _videoCtrl;
+  // Windows Media Foundation player — same engine as Vieana Screen.
+  VideoPlayerController? _vp;
   bool _videoReady = false;
   bool _videoSurfaceReady = false;
   String? _currentVideoPath;
   bool _videoLoading = false;
+  bool _videoEnding = false;
   int _currentVideoIndex = 0;
   String _currentVideoScreen = '';
   String? _videoError;
@@ -256,17 +258,6 @@ class _ReceiverState extends State<ReceiverScreen>
   @override
   void initState() {
     super.initState();
-    _player = Player(configuration: const PlayerConfiguration(
-      bufferSize: 512 * 1024 * 1024,
-      logLevel: MPVLogLevel.warn,
-    ));
-    _videoCtrl = VideoController(
-      _player,
-      configuration: const VideoControllerConfiguration(
-        enableHardwareAcceleration: true,
-        hwdec: 'auto-safe',
-      ),
-    );
 
     // Background zoom animation – only run when visible
     _bgZoomCtrl = AnimationController(
@@ -274,21 +265,6 @@ class _ReceiverState extends State<ReceiverScreen>
     _bgZoomCtrl.repeat(reverse: true);
     _bgZoom = Tween<double>(begin: 1.0, end: 1.15).animate(
         CurvedAnimation(parent: _bgZoomCtrl, curve: Curves.easeInOut));
-
-    // Listen for video completion → go back to home
-    _player.streams.completed.listen((_) {
-      if (mounted && !_videoLoading) {
-        _stopStatusTimer();
-        setState(() {
-          _screen = 'home';
-          _videoReady = false;
-          _videoSurfaceReady = false;
-          _videoLoading = false;
-          _currentVideoPath = null;
-        });
-        try { _player.stop(); } catch (_) {}
-      }
-    });
 
     if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       windowManager.addListener(this);
@@ -568,47 +544,6 @@ class _ReceiverState extends State<ReceiverScreen>
     debugPrint('[Receiver] Dart chunked copy done: ${dest.path}');
   }
 
-  String _toFileUri(String path) {
-    if (path.startsWith('file://')) return path;
-    return Uri.file(path).toString();
-  }
-
-  /// Wait until mpv has decoded video and buffered enough for smooth 4K playback.
-  Future<void> _waitForPlaybackReady({
-    Duration timeout = const Duration(seconds: 45),
-    Duration minBuffer = const Duration(seconds: 3),
-  }) async {
-    final deadline = DateTime.now().add(timeout);
-    DateTime? decodedAt;
-
-    while (DateTime.now().isBefore(deadline)) {
-      final s = _player.state;
-      final hasVideo =
-          (s.width ?? 0) > 0 && s.duration > Duration.zero;
-      if (hasVideo && decodedAt == null) decodedAt = DateTime.now();
-
-      final buffered = !s.buffering && s.buffer >= minBuffer;
-      if (hasVideo && buffered) return;
-
-      // Decoded but buffer slow — don't block more than 12s after first frame.
-      if (hasVideo &&
-          decodedAt != null &&
-          DateTime.now().difference(decodedAt!) > const Duration(seconds: 12)) {
-        debugPrint('[Receiver] Starting with partial buffer (${s.buffer.inSeconds}s)');
-        return;
-      }
-
-      await Future.delayed(const Duration(milliseconds: 80));
-    }
-
-    final s = _player.state;
-    if ((s.width ?? 0) > 0 && s.duration > Duration.zero) {
-      debugPrint('[Receiver] Buffer wait timeout — starting playback anyway');
-      return;
-    }
-    throw StateError('Video decode timeout');
-  }
-
   Future<void> _startHttpServer() async {
     try {
       final handler = const shelf.Pipeline().addHandler(_handleHttp);
@@ -740,8 +675,21 @@ class _ReceiverState extends State<ReceiverScreen>
       _devZoom.value = Matrix4.identity();
       _brochureZoom.value = Matrix4.identity();
     });
+    _syncBackgroundZoom();
     if (screen == 'brochure') {
       _loadBrochurePage(_brochureIdx);
+    }
+  }
+
+  /// Home zoom keeps scheduling frames. Stop it while a video is on screen
+  /// so those frames do not fight playback.
+  void _syncBackgroundZoom() {
+    if (_screen == 'home') {
+      if (!_bgZoomCtrl.isAnimating) {
+        _bgZoomCtrl.repeat(reverse: true);
+      }
+    } else if (_bgZoomCtrl.isAnimating) {
+      _bgZoomCtrl.stop();
     }
   }
 
@@ -810,6 +758,7 @@ class _ReceiverState extends State<ReceiverScreen>
         setState(() {
           _screen = screen;
         });
+        _syncBackgroundZoom();
       }
       // Wait 2 frames for Video widget to mount, then play
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -826,28 +775,30 @@ class _ReceiverState extends State<ReceiverScreen>
 
   void _onVideoControl(String action, dynamic value, String? path) {
     debugPrint('VideoControl: $action value=$value path=$path');
+    final controller = _vp;
     switch (action) {
       case 'play':
         if (path != null && path != _currentVideoPath) {
           _playVideo(path);
-        } else if (_videoLoading || !_videoReady) {
+        } else if (_videoLoading || !_videoReady || controller == null) {
           _pendingPlayRequest = true;
-        } else if (!_player.state.playing) {
-          _player.play();
+        } else if (!controller.value.isPlaying) {
+          _videoEnding = false;
+          controller.play();
           _startStatusTimer();
         }
         break;
       case 'pause':
-        _player.pause();
+        controller?.pause();
         break;
       case 'seek':
         final sec = (value as num?)?.toDouble() ?? 0.0;
-        _player.seek(Duration(milliseconds: (sec * 1000).toInt()));
+        controller?.seekTo(Duration(milliseconds: (sec * 1000).toInt()));
         Future.delayed(const Duration(milliseconds: 80), _pushVideoStatus);
         break;
       case 'volume':
-        final vol = (value as num?)?.toDouble() ?? 1.0;
-        _player.setVolume((vol * 100.0).clamp(0.0, 100.0));
+        final vol = ((value as num?)?.toDouble() ?? 1.0).clamp(0.0, 1.0);
+        controller?.setVolume(vol);
         break;
     }
   }
@@ -866,10 +817,12 @@ class _ReceiverState extends State<ReceiverScreen>
 
   void _pushVideoStatus() {
     if (_wsSockets.isEmpty) return;
+    final controller = _vp;
+    if (controller == null || !controller.value.isInitialized) return;
     try {
-      final pos = _player.state.position.inMilliseconds.toDouble();
-      final dur = _player.state.duration.inMilliseconds.toDouble();
-      final playing = _player.state.playing;
+      final pos = controller.value.position.inMilliseconds.toDouble();
+      final dur = controller.value.duration.inMilliseconds.toDouble();
+      final playing = controller.value.isPlaying;
       final msg = jsonEncode({
         'type': 'video_status',
         'screen': _currentVideoScreen,
@@ -886,32 +839,97 @@ class _ReceiverState extends State<ReceiverScreen>
     }
   }
 
+  void _onVideoTick() {
+    final controller = _vp;
+    if (controller == null || !mounted || _videoLoading || _videoEnding) return;
+    final value = controller.value;
+    if (!value.isInitialized || value.duration <= Duration.zero) return;
+    if (!value.isCompleted || value.isPlaying) return;
+
+    _videoEnding = true;
+    _stopStatusTimer();
+    final old = controller;
+    _vp = null;
+    _currentVideoPath = null;
+    old.removeListener(_onVideoTick);
+    setState(() {
+      _screen = 'home';
+      _videoReady = false;
+      _videoSurfaceReady = false;
+      _videoLoading = false;
+    });
+    _syncBackgroundZoom();
+    Future<void>(() async {
+      try { await old.dispose(); } catch (_) {}
+    });
+  }
+
+  Future<VideoPlayerController> _openVideoFile(String filePath) async {
+    final controller = VideoPlayerController.file(File(filePath));
+    try {
+      await controller.initialize().timeout(const Duration(seconds: 45));
+      await controller.setVolume(1.0);
+      return controller;
+    } catch (e) {
+      try { await controller.dispose(); } catch (_) {}
+      rethrow;
+    }
+  }
+
+  void _showOpened(VideoPlayerController next, String assetPath) {
+    final old = _vp;
+    if (old != null && !identical(old, next)) {
+      old.removeListener(_onVideoTick);
+    }
+    _vp = next;
+    next.addListener(_onVideoTick);
+    _currentVideoPath = assetPath;
+    _videoReady = true;
+    _videoSurfaceReady = true;
+    _videoLoading = false;
+    _videoError = null;
+    _videoEnding = false;
+    if (mounted) setState(() {});
+    if (old != null && !identical(old, next)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try { await old.dispose(); } catch (_) {}
+      });
+    }
+  }
+
   Future<void> _playVideo(String assetPath) async {
     if (_videoLoading) {
       _pendingVideoAsset = assetPath;
       return;
     }
 
-    // Only skip reopen when decode surface is live on the big display.
+    final existing = _vp;
     if (_currentVideoPath == assetPath &&
+        existing != null &&
+        existing.value.isInitialized &&
         _videoReady &&
         _videoSurfaceReady) {
       _stopStatusTimer();
+      _videoEnding = false;
       try {
-        await _player.seek(Duration.zero);
-        await _player.setVolume(100.0);
-        await _player.play();
+        await existing.seekTo(Duration.zero);
+        await existing.setVolume(1.0);
+        await existing.play();
       } catch (_) {}
       _startStatusTimer();
       return;
     }
 
     _videoLoading = true;
-    _videoReady = false;
-    _videoSurfaceReady = false;
     _videoError = null;
+    _videoEnding = false;
     _stopStatusTimer();
-    if (mounted) setState(() {});
+    // Keep the current frame up. A black cover is only for the first open.
+    if (existing == null || !existing.value.isInitialized) {
+      _videoReady = false;
+      _videoSurfaceReady = false;
+      if (mounted) setState(() {});
+    }
 
     try {
       await _ensureVideosExtracted();
@@ -920,71 +938,47 @@ class _ReceiverState extends State<ReceiverScreen>
         throw StateError('Video file missing: $resolved');
       }
       debugPrint('[Receiver] Playing resolved path: $resolved');
-
-      await _player.stop();
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final uri = _toFileUri(resolved);
-      await _player.open(Media(uri), play: false);
-      await _waitForPlaybackReady(
-        minBuffer: const Duration(seconds: 3),
-      );
-      await _player.setVolume(100.0);
-      await _player.play();
-
-      _currentVideoPath = assetPath;
-      _videoReady = true;
-      _videoSurfaceReady = true;
+      final next = await _openVideoFile(resolved);
+      _showOpened(next, assetPath);
+      await next.play();
       _startStatusTimer();
       if (_pendingPlayRequest) {
         _pendingPlayRequest = false;
-        await _player.play();
+        await next.play();
       }
     } catch (e) {
-      debugPrint('[Receiver] Play error: $e – retrying with fresh player');
-      _videoReady = false;
-      _videoSurfaceReady = false;
-
-      try { await _player.dispose(); } catch (_) {}
-      try {
-        _player = Player(configuration: const PlayerConfiguration(
-          bufferSize: 512 * 1024 * 1024,
-          logLevel: MPVLogLevel.warn,
-        ));
-        _videoCtrl = VideoController(
-          _player,
-          configuration: const VideoControllerConfiguration(
-            enableHardwareAcceleration: true,
-            hwdec: 'auto',
-          ),
-        );
-      } catch (_) {}
-
+      debugPrint('[Receiver] Play error: $e – retrying');
       try {
         final resolved = _extractedPaths[assetPath] ?? assetPath;
-        final uri = _toFileUri(resolved);
-        await _player.open(Media(uri), play: false);
-        await _waitForPlaybackReady(
-          minBuffer: const Duration(seconds: 3),
-        );
-        await _player.setVolume(100.0);
-        await _player.play();
-
-        _currentVideoPath = assetPath;
-        _videoReady = true;
-        _videoSurfaceReady = true;
+        if (!await File(resolved).exists()) {
+          throw StateError('Video file missing: $resolved');
+        }
+        final next = await _openVideoFile(resolved);
+        _showOpened(next, assetPath);
+        await next.play();
         _startStatusTimer();
       } catch (e2) {
         debugPrint('[Receiver] Retry also failed: $e2');
+        _videoLoading = false;
+        if (_vp == null || !_vp!.value.isInitialized) {
+          _videoReady = false;
+          _videoSurfaceReady = false;
+        }
         _videoError = 'Video playback failed. Tap to retry.';
         if (mounted) {
-          _showErrorPopup('Video Error: ${e2.toString().isNotEmpty ? e2.toString().substring(0, e2.toString().length.clamp(0, 120)) : "Playback failed"}');
+          setState(() {});
+          final msg = e2.toString();
+          _showErrorPopup(
+            'Video Error: ${msg.isNotEmpty ? msg.substring(0, msg.length.clamp(0, 120)) : "Playback failed"}',
+          );
         }
       }
     }
 
-    _videoLoading = false;
-    if (mounted) setState(() {});
+    if (_videoLoading) {
+      _videoLoading = false;
+      if (mounted) setState(() {});
+    }
 
     final pending = _pendingVideoAsset;
     _pendingVideoAsset = null;
@@ -999,11 +993,16 @@ class _ReceiverState extends State<ReceiverScreen>
     _videoReady = false;
     _videoSurfaceReady = false;
     _videoLoading = false;
+    _videoEnding = false;
     _pendingVideoAsset = null;
     _pendingPlayRequest = false;
-    try {
-      await _player.stop();
-    } catch (_) {}
+    final old = _vp;
+    _vp = null;
+    if (old != null) {
+      old.removeListener(_onVideoTick);
+      try { await old.pause(); } catch (_) {}
+      try { await old.dispose(); } catch (_) {}
+    }
     if (mounted) setState(() {});
   }
 
@@ -1016,7 +1015,12 @@ class _ReceiverState extends State<ReceiverScreen>
     for (final ws in _wsSockets) {
       try { ws.close(); } catch (_) {}
     }
-    try { _player.dispose(); } catch (_) {}
+    final oldVideo = _vp;
+    _vp = null;
+    if (oldVideo != null) {
+      oldVideo.removeListener(_onVideoTick);
+      try { oldVideo.dispose(); } catch (_) {}
+    }
     try { _bgZoomCtrl.dispose(); } catch (_) {}
     if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       windowManager.removeListener(this);
@@ -1334,25 +1338,20 @@ class _ReceiverState extends State<ReceiverScreen>
 
   // ── Video body ───────────────────────────────────────────────────────────────
   Widget _buildVideoBody() {
-    if (_videoCtrl == null) {
-      return Container(
-        color: Colors.black,
-        child: const Center(
-          child: CircularProgressIndicator(
-              color: Color(0xFFFECD2A), strokeWidth: 2.5),
-        ),
-      );
-    }
-    return Container(
+    final controller = _vp;
+    final showVideo = controller != null &&
+        controller.value.isInitialized &&
+        _videoReady;
+    return ColoredBox(
       color: Colors.black,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Video(
-            controller: _videoCtrl!,
-            fit: BoxFit.cover,
-            controls: NoVideoControls,
-          ),
+          if (showVideo)
+            _CoverVideo(
+              key: ObjectKey(controller),
+              controller: controller,
+            ),
           if (_videoError != null)
             GestureDetector(
               onTap: () {
@@ -1394,13 +1393,10 @@ class _ReceiverState extends State<ReceiverScreen>
                 ),
               ),
             )
-          else if (_videoLoading && !_videoReady)
-            ColoredBox(
-              color: Colors.black,
-              child: const Center(
-                child: CircularProgressIndicator(
-                    color: Color(0xFFFECD2A), strokeWidth: 2.5),
-              ),
+          else if (!showVideo)
+            const Center(
+              child: CircularProgressIndicator(
+                  color: Color(0xFFFECD2A), strokeWidth: 2.5),
             ),
         ],
       ),
@@ -1535,6 +1531,32 @@ class _ReceiverState extends State<ReceiverScreen>
               child: Icon(Icons.broken_image, size: 80, color: Colors.white24),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-bleed video, same layout as Vieana Screen. The surface is not covered
+/// by a black layer once the first frame is ready, so playback does not blink.
+class _CoverVideo extends StatelessWidget {
+  const _CoverVideo({super.key, required this.controller});
+
+  final VideoPlayerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = controller.value.size;
+    final width = size.width > 1 ? size.width : 1920.0;
+    final height = size.height > 1 ? size.height : 1080.0;
+    return RepaintBoundary(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: VideoPlayer(controller),
         ),
       ),
     );
